@@ -4,7 +4,7 @@ version = "1.48.0"
 
 [source]
 url = "https://dist.libuv.org/dist/v{version}/libuv-v{version}.tar.gz"
-sha256 = "95b66faf3c19b021eb475c0a04c4febfe0442efbd88bca3174d32a1f8957cb71"
+sha256 = "7f1db8ac368d89d1baf163bac1ea5fe5120697a73910c8ae6b2fffb3551d59fb"
 
 [termux]
 package = "libuv"
