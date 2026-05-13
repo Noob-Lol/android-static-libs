@@ -302,24 +302,43 @@ def install_root_for_target(out_root: Path, target: str):
 
 def postprocess_install_tree(install_root: Path):
     pkgconfig_dir = install_root / "lib" / "pkgconfig"
-    if not pkgconfig_dir.is_dir():
-        return
+    if pkgconfig_dir.is_dir():
+        for pc_file in pkgconfig_dir.glob("*.pc"):
+            rewrite_prefix_file(
+                pc_file,
+                {
+                    "prefix=": "prefix=${pcfiledir}/../..",
+                    "exec_prefix=": "exec_prefix=${prefix}",
+                    "libdir=": "libdir=${prefix}/lib",
+                    "includedir=": "includedir=${prefix}/include",
+                },
+            )
 
-    for pc_file in pkgconfig_dir.glob("*.pc"):
-        lines = pc_file.read_text(encoding="utf-8").splitlines()
-        rewritten = []
-        for line in lines:
-            if line.startswith("prefix="):
-                rewritten.append("prefix=${pcfiledir}/../..")
-            elif line.startswith("exec_prefix="):
-                rewritten.append("exec_prefix=${prefix}")
-            elif line.startswith("libdir="):
-                rewritten.append("libdir=${prefix}/lib")
-            elif line.startswith("includedir="):
-                rewritten.append("includedir=${prefix}/include")
-            else:
-                rewritten.append(line)
-        pc_file.write_text("\n".join(rewritten) + "\n", encoding="utf-8")
+    bin_dir = install_root / "bin"
+    if bin_dir.is_dir():
+        for config_script in bin_dir.glob("*-config"):
+            rewrite_prefix_file(
+                config_script,
+                {
+                    "prefix=": 'prefix=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)',
+                    "exec_prefix=": "exec_prefix=${prefix}",
+                    "libdir=": "libdir=${prefix}/lib",
+                    "includedir=": "includedir=${prefix}/include",
+                },
+            )
+
+
+def rewrite_prefix_file(path: Path, replacements):
+    lines = path.read_text(encoding="utf-8").splitlines()
+    rewritten = []
+    for line in lines:
+        replacement = None
+        for prefix, value in replacements.items():
+            if line.startswith(prefix):
+                replacement = value
+                break
+        rewritten.append(replacement if replacement is not None else line)
+    path.write_text("\n".join(rewritten) + "\n", encoding="utf-8")
 
 
 def validate_static_install_tree(install_root: Path):
@@ -339,7 +358,8 @@ def validate_static_install_tree(install_root: Path):
     leaked_paths = []
     text_suffixes = {".cmake", ".pc", ".json", ".txt"}
     for path in install_root.rglob("*"):
-        if path.is_file() and path.suffix in text_suffixes:
+        is_config_script = path.parent.name == "bin" and path.name.endswith("-config")
+        if path.is_file() and (path.suffix in text_suffixes or is_config_script):
             content = path.read_text(encoding="utf-8", errors="ignore")
             if install_root_text in content:
                 leaked_paths.append(path.relative_to(install_root))
