@@ -57,6 +57,9 @@ Important fields:
   and extract into the same target prefix before building this package. `url`
   supports `{package}`, `{version}`, `{target}`, and `{triplet}` tokens. When
   `url` is omitted, the build uses this repository's release archive format.
+  `cmake_package` and `cmake_dir` can be used to pass
+  `-D<cmake_package>_DIR=<prefix>/<cmake_dir>` for packages found via CMake
+  config mode.
 
 Termux patches are downloaded from:
 

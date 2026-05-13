@@ -20,6 +20,8 @@ patches = []
 package = "libxml2"
 version = "2.15.3"
 url = "https://github.com/Noob-Lol/android-static-libs/releases/download/libxml2-2.15.3/libxml2-2.15.3-{triplet}.tar.gz"
+cmake_package = "LibXml2"
+cmake_dir = "lib/cmake/libxml2"
 
 [build]
 system = "cmake"

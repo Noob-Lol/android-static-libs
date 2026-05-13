@@ -180,11 +180,12 @@ def dependency_url(dependency, target_info):
 def install_dependency_archives(config, target, work_dir, install_root):
     dependencies = config.get("dependencies", [])
     if not dependencies:
-        return
+        return []
 
     target_info = TARGETS[target]
     dependency_dir = work_dir / "dependency-archives" / target
     dependency_dir.mkdir(parents=True, exist_ok=True)
+    cmake_args = []
 
     for dependency in dependencies:
         url = dependency_url(dependency, target_info)
@@ -199,6 +200,12 @@ def install_dependency_archives(config, target, work_dir, install_root):
         else:
             log(f"No dependency sha256 configured for {archive_name}; skipping checksum verification.")
         extract_dependency_archive(archive_path, install_root)
+        cmake_package = dependency.get("cmake_package")
+        cmake_dir = dependency.get("cmake_dir")
+        if cmake_package and cmake_dir:
+            cmake_args.append(f"-D{cmake_package}_DIR={install_root / cmake_dir}")
+
+    return cmake_args
 
 
 def apply_patches(source_dir, patches):
@@ -246,7 +253,7 @@ def cmake_define_args(defines):
     return args
 
 
-def build_target(config, source_dir, target: str, api, out_root: Path, keep_build, *, clean_install=True):
+def build_target(config, source_dir, target: str, api, out_root: Path, keep_build, *, clean_install=True, cmake_args=None):
     target_info = TARGETS[target]
     ndk = find_ndk()
     if ndk is None:
@@ -276,6 +283,7 @@ def build_target(config, source_dir, target: str, api, out_root: Path, keep_buil
         f"-DCMAKE_INSTALL_PREFIX={install_root}",
         "-DCMAKE_BUILD_TYPE=Release",
         *(f"-DCMAKE_PREFIX_PATH={path}" for path in prefix_paths),
+        *(cmake_args or []),
         *cmake_define_args(defines),
     ]
 
@@ -403,8 +411,17 @@ def build_package(args):
             install_root = install_root_for_target(out_root, target)
             if install_root.exists():
                 shutil.rmtree(install_root)
-            install_dependency_archives(config, target, work_dir, install_root)
-            install_root = build_target(config, source_dir, target, args.api, out_root, args.keep_build, clean_install=False)
+            dependency_cmake_args = install_dependency_archives(config, target, work_dir, install_root)
+            install_root = build_target(
+                config,
+                source_dir,
+                target,
+                args.api,
+                out_root,
+                args.keep_build,
+                clean_install=False,
+                cmake_args=dependency_cmake_args,
+            )
             write_manifest(config, target, args.api, install_root)
             archive_install(config, target, args.api, install_root, dist_dir)
 

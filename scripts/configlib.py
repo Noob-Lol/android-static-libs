@@ -77,6 +77,10 @@ def validate_config(config, path):
             fail(f"{path}: dependencies.url must be a string")
         if "sha256" in dependency and not isinstance(dependency["sha256"], str):
             fail(f"{path}: dependencies.sha256 must be a string")
+        if "cmake_package" in dependency and not isinstance(dependency["cmake_package"], str):
+            fail(f"{path}: dependencies.cmake_package must be a string")
+        if "cmake_dir" in dependency and not isinstance(dependency["cmake_dir"], str):
+            fail(f"{path}: dependencies.cmake_dir must be a string")
 
 
 def resolve_config_version(config, version=None):
