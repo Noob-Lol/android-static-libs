@@ -217,7 +217,7 @@ def write_manifest(config, target, api, install_root):
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
-def archive_install(config, target, api, install_root, dist_dir):
+def archive_install(config, target, api, install_root: Path, dist_dir: Path):
     triplet = TARGETS[target]["triplet"]
     # dont include android api. `-android-api{api}` is bad
     name = f"{config['name']}-{config['version']}-{triplet}.tar.gz"
@@ -225,8 +225,8 @@ def archive_install(config, target, api, install_root, dist_dir):
     dist_dir.mkdir(parents=True, exist_ok=True)
 
     with tarfile.open(archive_path, "w:gz") as tf:
-        tf.add(install_root)
-
+        for item in install_root.iterdir():
+            tf.add(item, arcname=item.name)
     log(f"Created {archive_path}")
     return archive_path
 
