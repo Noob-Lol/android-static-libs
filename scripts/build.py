@@ -10,6 +10,7 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import NoReturn
 
 from configlib import load_config
 
@@ -31,8 +32,9 @@ def log(message):
     print(message, flush=True)
 
 
-def fail(message):
-    raise SystemExit(f"error: {message}")
+def fail(message) -> NoReturn:
+    msg = f"error: {message}"
+    raise SystemExit(msg)
 
 
 def render_template(value, config):
@@ -69,8 +71,8 @@ def extract_archive(archive, dest):
     return first_child(dest)
 
 
-def first_child(path):
-    children = [child for child in path.iterdir()]
+def first_child(path: Path):
+    children = list(path.iterdir())
     if len(children) == 1 and children[0].is_dir():
         return children[0]
     return path
@@ -111,10 +113,7 @@ def download_termux_patches(config, work_dir):
 
     downloaded = []
     for patch_name in patches:
-        url = (
-            "https://raw.githubusercontent.com/termux/termux-packages/"
-            f"{ref}/packages/{package}/{patch_name}"
-        )
+        url = f"https://raw.githubusercontent.com/termux/termux-packages/{ref}/packages/{package}/{patch_name}"
         dest = patch_dir / Path(patch_name).name
         download(url, dest)
         downloaded.append(dest)
@@ -139,6 +138,7 @@ def find_ndk():
             if (path / "build" / "cmake" / "android.toolchain.cmake").is_file():
                 return path
     fail("ANDROID_NDK_HOME, ANDROID_NDK_ROOT, or ANDROID_NDK_LATEST_HOME must point to an Android NDK")
+    return None
 
 
 def cmake_define_args(defines):
@@ -148,9 +148,11 @@ def cmake_define_args(defines):
     return args
 
 
-def build_target(config, source_dir, target, api, out_root, keep_build):
+def build_target(config, source_dir, target: str, api, out_root: Path, keep_build):
     target_info = TARGETS[target]
     ndk = find_ndk()
+    if ndk is None:
+        fail("Unable to find NDK")
     build_root = out_root / "build" / target
     install_root = out_root / "install" / target_info["triplet"]
 
@@ -174,7 +176,8 @@ def build_target(config, source_dir, target, api, out_root, keep_build):
         f"-DANDROID_PLATFORM=android-{api}",
         f"-DCMAKE_INSTALL_PREFIX={install_root}",
         "-DCMAKE_BUILD_TYPE=Release",
-    ] + cmake_define_args(defines)
+        *cmake_define_args(defines),
+    ]
 
     run(configure_cmd)
     run(["cmake", "--build", str(build_root), "--config", "Release", "--parallel"])
@@ -198,7 +201,8 @@ def write_manifest(config, target, api, install_root):
 
 def archive_install(config, target, api, install_root, dist_dir):
     triplet = TARGETS[target]["triplet"]
-    name = f"{config['name']}-{config['version']}-android-api{api}-{triplet}.tar.gz"
+    # dont include android api. `-android-api{api}` is bad
+    name = f"{config['name']}-{config['version']}-{triplet}.tar.gz"
     archive_path = dist_dir / name
     dist_dir.mkdir(parents=True, exist_ok=True)
 
@@ -252,8 +256,12 @@ def main():
     parser.add_argument("--target", action="append", help="Target name or comma-separated targets")
     parser.add_argument("--api", type=int, default=24, help="Android API level")
     parser.add_argument("--dist", default="dist", help="Output directory for tarballs")
-    parser.add_argument("--keep-build", action="store_true", help="Keep CMake build directories inside the temporary workspace")
-    parser.add_argument("--validate-config", action="store_true", help="Validate config and exit without downloading or building")
+    parser.add_argument(
+        "--keep-build", action="store_true", help="Keep CMake build directories inside the temporary workspace"
+    )
+    parser.add_argument(
+        "--validate-config", action="store_true", help="Validate config and exit without downloading or building"
+    )
     args = parser.parse_args()
 
     if args.validate_config:
