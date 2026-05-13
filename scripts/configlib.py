@@ -2,20 +2,16 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "configs"
 REQUIRED_TOP_LEVEL = ("name", "source", "build")
 
 
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - GitHub runners use Python 3.11+
-    tomllib = None
-
-
 def fail(message):
-    raise SystemExit(f"error: {message}")
+    msg = f"error: {message}"
+    raise SystemExit(msg)
 
 
 def config_path(package):
@@ -26,9 +22,6 @@ def load_config(package):
     path = config_path(package)
     if not path.is_file():
         fail(f"config not found: {path}")
-
-    if tomllib is None:
-        fail("Python 3.11+ is required to read TOML package configs")
 
     with path.open("rb") as fh:
         config = tomllib.load(fh)
