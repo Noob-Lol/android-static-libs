@@ -200,8 +200,58 @@ def build_target(config, source_dir, target: str, api, out_root: Path, keep_buil
     run(configure_cmd)
     run(["cmake", "--build", str(build_root), "--config", "Release", "--parallel"])
     run(["cmake", "--install", str(build_root), "--config", "Release"])
+    postprocess_install_tree(install_root)
+    validate_static_install_tree(install_root)
 
     return install_root
+
+
+def postprocess_install_tree(install_root: Path):
+    pkgconfig_dir = install_root / "lib" / "pkgconfig"
+    if not pkgconfig_dir.is_dir():
+        return
+
+    for pc_file in pkgconfig_dir.glob("*.pc"):
+        lines = pc_file.read_text(encoding="utf-8").splitlines()
+        rewritten = []
+        for line in lines:
+            if line.startswith("prefix="):
+                rewritten.append("prefix=${pcfiledir}/../..")
+            elif line.startswith("exec_prefix="):
+                rewritten.append("exec_prefix=${prefix}")
+            elif line.startswith("libdir="):
+                rewritten.append("libdir=${prefix}/lib")
+            elif line.startswith("includedir="):
+                rewritten.append("includedir=${prefix}/include")
+            else:
+                rewritten.append(line)
+        pc_file.write_text("\n".join(rewritten) + "\n", encoding="utf-8")
+
+
+def validate_static_install_tree(install_root: Path):
+    static_libs = sorted((install_root / "lib").glob("*.a")) if (install_root / "lib").is_dir() else []
+    if not static_libs:
+        fail(f"{install_root}: no static libraries were installed")
+
+    shared_patterns = ("*.so", "*.so.*", "*.dylib", "*.dll")
+    shared_libs = []
+    for pattern in shared_patterns:
+        shared_libs.extend(install_root.rglob(pattern))
+    if shared_libs:
+        names = ", ".join(str(path.relative_to(install_root)) for path in sorted(shared_libs))
+        fail(f"{install_root}: shared libraries were installed in static package: {names}")
+
+    install_root_text = str(install_root)
+    leaked_paths = []
+    text_suffixes = {".cmake", ".pc", ".json", ".txt"}
+    for path in install_root.rglob("*"):
+        if path.is_file() and path.suffix in text_suffixes:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+            if install_root_text in content:
+                leaked_paths.append(path.relative_to(install_root))
+    if leaked_paths:
+        names = ", ".join(str(path) for path in leaked_paths)
+        fail(f"{install_root}: install metadata contains non-relocatable absolute paths: {names}")
 
 
 def write_manifest(config, target, api, install_root):
