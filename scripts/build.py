@@ -225,7 +225,7 @@ def archive_install(config, target, api, install_root, dist_dir):
     dist_dir.mkdir(parents=True, exist_ok=True)
 
     with tarfile.open(archive_path, "w:gz") as tf:
-        tf.add(install_root, arcname=f"{config['name']}-{config['version']}-{triplet}")
+        tf.add(install_root)
 
     log(f"Created {archive_path}")
     return archive_path
