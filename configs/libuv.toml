@@ -1,16 +1,21 @@
-# Upstream package identity. Release tags must be "<name>-<version>".
+# Upstream package identity. Release tags supply the version as "<name>-<version>".
 name = "libuv"
-version = "1.48.0"
+default_version = "1.52.1"
 
 [source]
 url = "https://dist.libuv.org/dist/v{version}/libuv-v{version}.tar.gz"
-sha256 = "7f1db8ac368d89d1baf163bac1ea5fe5120697a73910c8ae6b2fffb3551d59fb"
+# Optional fallback checksum. Prefer [source.sha256_by_version] for pinned releases.
+sha256 = ""
+
+[source.sha256_by_version]
+# Add entries as versions are promoted, for example:
+# "1.48.0" = "..."
 
 [termux]
 package = "libuv"
 # Pin this to a Termux commit once patches are needed for deterministic rebuilds.
 ref = "master"
-patches = []
+patches = ["src-unix-fs.c.patch", "src-unix-linux.c.patch"]
 
 [build]
 system = "cmake"

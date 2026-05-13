@@ -1,10 +1,11 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "configs"
-REQUIRED_TOP_LEVEL = ("name", "version", "source", "build")
+REQUIRED_TOP_LEVEL = ("name", "source", "build")
 
 
 try:
@@ -47,6 +48,17 @@ def validate_config(config, path):
     if "url" not in config["source"]:
         fail(f"{path}: source.url is required")
 
+    sha256 = config["source"].get("sha256", "")
+    if sha256 and not isinstance(sha256, str):
+        fail(f"{path}: source.sha256 must be a string")
+
+    sha256_by_version = config["source"].get("sha256_by_version", {})
+    if not isinstance(sha256_by_version, dict):
+        fail(f"{path}: source.sha256_by_version must be a table")
+    for version, digest in sha256_by_version.items():
+        if not isinstance(version, str) or not isinstance(digest, str):
+            fail(f"{path}: source.sha256_by_version entries must be string = string")
+
     patches = config.get("termux", {}).get("patches", [])
     if not isinstance(patches, list):
         fail(f"{path}: termux.patches must be a list")
@@ -57,6 +69,22 @@ def validate_config(config, path):
     defines = config["build"].get("defines", {})
     if not isinstance(defines, dict):
         fail(f"{path}: build.defines must be a table")
+
+
+def resolve_config_version(config, version=None):
+    resolved = deepcopy(config)
+    effective_version = version or resolved.get("default_version")
+    if not effective_version:
+        fail("no version provided; pass --version or set default_version in the config")
+    resolved["version"] = effective_version
+    return resolved
+
+
+def source_sha256(config):
+    by_version = config["source"].get("sha256_by_version", {})
+    if config["version"] in by_version:
+        return by_version[config["version"]].strip().lower()
+    return config["source"].get("sha256", "").strip().lower()
 
 
 def resolve_field(config, field):

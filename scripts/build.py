@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 from typing import NoReturn
 
-from configlib import load_config
+from configlib import load_config, resolve_config_version, source_sha256
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -89,7 +89,7 @@ def download_source(config, work_dir):
     archive_path = work_dir / archive_name
     download(source_url, archive_path)
 
-    expected = config["source"].get("sha256", "").strip().lower()
+    expected = source_sha256(config)
     if expected:
         actual = sha256sum(archive_path)
         if actual != expected:
@@ -128,6 +128,24 @@ def apply_patches(source_dir, patches):
             run(["git", "apply", "--verbose", str(patch)], cwd=source_dir)
         except subprocess.CalledProcessError:
             run(["patch", "-p1", "-i", str(patch)], cwd=source_dir)
+
+
+def validate_termux_patches(args):
+    raw_config, config_path = load_config(args.package)
+    patches = raw_config.get("termux", {}).get("patches", [])
+    if not patches:
+        log(f"OK: {config_path} has no Termux patches configured")
+        return
+
+    config = resolve_config_version(raw_config, args.version)
+
+    log(f"Loaded {config_path}")
+    with tempfile.TemporaryDirectory(prefix=f"{config['name']}-{config['version']}-patches-") as tmp:
+        work_dir = Path(tmp)
+        source_dir = download_source(config, work_dir)
+        downloaded = download_termux_patches(config, work_dir)
+        apply_patches(source_dir, downloaded)
+        log(f"OK: fetched and applied {len(downloaded)} Termux patch(es)")
 
 
 def find_ndk():
@@ -232,7 +250,8 @@ def parse_targets(values):
 
 
 def build_package(args):
-    config, config_path = load_config(args.package)
+    raw_config, config_path = load_config(args.package)
+    config = resolve_config_version(raw_config, args.version)
     targets = parse_targets(args.target)
     dist_dir = Path(args.dist).resolve()
 
@@ -253,6 +272,7 @@ def build_package(args):
 def main():
     parser = argparse.ArgumentParser(description="Build static Android native libraries.")
     parser.add_argument("--package", required=True, help="Package config name from configs/<package>.toml")
+    parser.add_argument("--version", help="Upstream version. Overrides config default_version.")
     parser.add_argument("--target", action="append", help="Target name or comma-separated targets")
     parser.add_argument("--api", type=int, default=24, help="Android API level")
     parser.add_argument("--dist", default="dist", help="Output directory for tarballs")
@@ -262,12 +282,23 @@ def main():
     parser.add_argument(
         "--validate-config", action="store_true", help="Validate config and exit without downloading or building"
     )
+    parser.add_argument(
+        "--validate-patches",
+        action="store_true",
+        help="Download source and configured Termux patches, then verify patches apply without building",
+    )
     args = parser.parse_args()
 
     if args.validate_config:
-        config, path = load_config(args.package)
+        raw_config, path = load_config(args.package)
+        version = args.version or raw_config.get("default_version")
         parse_targets(args.target)
-        log(f"OK: {path} ({config['name']} {config['version']})")
+        suffix = f" default_version={version}" if version else " no default_version"
+        log(f"OK: {path} ({raw_config['name']};{suffix})")
+        return
+
+    if args.validate_patches:
+        validate_termux_patches(args)
         return
 
     build_package(args)

@@ -13,11 +13,14 @@ Example:
 
 ```toml
 name = "libuv"
-version = "1.48.0"
+default_version = "1.48.0"
 
 [source]
 url = "https://dist.libuv.org/dist/v{version}/libuv-v{version}.tar.gz"
-sha256 = "95b66faf3c19b021eb475c0a04c4febfe0442efbd88bca3174d32a1f8957cb71"
+sha256 = ""
+
+[source.sha256_by_version]
+# "1.48.0" = "..."
 
 [termux]
 package = "libuv"
@@ -36,9 +39,13 @@ CMAKE_POSITION_INDEPENDENT_CODE = "ON"
 Important fields:
 
 - `name`: package name used for workflow inputs and release tags.
-- `version`: upstream version.
+- `default_version`: optional fallback version for manual builds. Release tags
+  and `--version` override it.
 - `source.url`: source archive URL. `{version}` and `{name}` are expanded.
-- `source.sha256`: optional source checksum. Leave empty only while bootstrapping.
+- `source.sha256`: optional fallback source checksum.
+- `source.sha256_by_version`: optional version-keyed checksums. Missing
+  entries warn and skip checksum verification instead of blocking other
+  versions.
 - `termux.package`: package directory under `termux/termux-packages/packages`.
 - `termux.ref`: branch, tag, or commit from `termux/termux-packages`.
 - `termux.patches`: patch filenames to download from Termux and apply before building.
@@ -64,7 +71,7 @@ The base workflow builds Android API 24 for:
 Output archive names use this format:
 
 ```text
-<package>-<version>-android-api<api>-<triplet>.tar.gz
+<package>-<version>-<triplet>.tar.gz
 ```
 
 Each archive contains the CMake install tree and an
@@ -77,21 +84,20 @@ Manual build:
 
 1. Run **Build native Android libraries**.
 2. Set `package` to a config name such as `libuv`.
-3. Keep `api` as `24` unless a consumer requires a different minimum.
+3. Set `version`, or leave it empty to use `default_version`.
+4. Keep `api` as `24` unless a consumer requires a different minimum.
 
 Release build:
 
-1. Ensure `configs/<package>.toml` has the intended version.
-2. Push a tag in the form `<package>-<version>`, for example:
+1. Push a tag in the form `<package>-<version>`, for example:
 
 ```bash
 git tag libuv-1.48.0
 git push origin libuv-1.48.0
 ```
 
-The workflow validates that the tag version matches the config version, builds
-the static libraries, and uploads the tarballs to a GitHub release with the same
-tag.
+The workflow uses the tag version directly, builds the static libraries, and
+uploads the tarballs to a GitHub release with the same tag.
 
 ## Local validation
 
@@ -99,6 +105,12 @@ Config and target parsing can be checked without downloading or compiling:
 
 ```bash
 python scripts/build.py --package libuv --target arm64_v8a,x86_64 --api 24 --validate-config
+```
+
+Validate configured Termux patches without compiling:
+
+```bash
+python scripts/build.py --package libuv --version 1.48.0 --validate-patches
 ```
 
 The config helper can validate all configs:
@@ -111,7 +123,7 @@ Create a starter config without hand-writing TOML:
 
 ```bash
 python scripts/config.py new libxml2 \
-  --version 2.12.7 \
+  --default-version 2.12.7 \
   --url "https://download.gnome.org/sources/libxml2/2.12/libxml2-{version}.tar.xz" \
   --termux-package libxml2 \
   --define LIBXML2_WITH_PYTHON=OFF
@@ -120,7 +132,7 @@ python scripts/config.py new libxml2 \
 Inspect fields for scripts or release checks:
 
 ```bash
-python scripts/config.py show libuv --field version
+python scripts/config.py show libuv --version 1.49.2 --field version
 ```
 
 The full build requires an Android NDK and `ANDROID_NDK_HOME`,

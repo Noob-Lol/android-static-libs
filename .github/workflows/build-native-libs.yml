@@ -15,6 +15,9 @@ on:
         description: Android API level
         required: true
         default: "24"
+      version:
+        description: Upstream version. Optional when config has default_version.
+        required: false
   push:
     tags:
       - "*-*"
@@ -29,6 +32,7 @@ jobs:
       ANDROID_API: ${{ github.event.inputs.api || '24' }}
       BUILD_TARGETS: ${{ github.event.inputs.targets || 'arm64_v8a,x86_64' }}
       INPUT_PACKAGE: ${{ github.event.inputs.package }}
+      INPUT_VERSION: ${{ github.event.inputs.version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -47,15 +51,12 @@ jobs:
               echo "No config found for tag package '${package}' at ${config}" >&2
               exit 1
             fi
-            config_version="$(python scripts/config.py show "${package}" --field version)"
-            if [[ "${config_version}" != "${version}" ]]; then
-              echo "Tag version ${version} does not match ${config} version ${config_version}" >&2
-              exit 1
-            fi
           else
             package="${INPUT_PACKAGE}"
+            version="${INPUT_VERSION}"
           fi
           echo "package=${package}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Configure Android NDK environment
         shell: bash
@@ -73,10 +74,31 @@ jobs:
           fi
 
       - name: Validate package config
-        run: python scripts/build.py --package "${{ steps.package.outputs.package }}" --target "${BUILD_TARGETS}" --api "${ANDROID_API}" --validate-config
+        shell: bash
+        run: |
+          version_args=()
+          if [[ -n "${{ steps.package.outputs.version }}" ]]; then
+            version_args=(--version "${{ steps.package.outputs.version }}")
+          fi
+          python scripts/build.py --package "${{ steps.package.outputs.package }}" "${version_args[@]}" --target "${BUILD_TARGETS}" --api "${ANDROID_API}" --validate-config
+
+      - name: Validate Termux patches
+        shell: bash
+        run: |
+          version_args=()
+          if [[ -n "${{ steps.package.outputs.version }}" ]]; then
+            version_args=(--version "${{ steps.package.outputs.version }}")
+          fi
+          python scripts/build.py --package "${{ steps.package.outputs.package }}" "${version_args[@]}" --validate-patches
 
       - name: Build static libraries
-        run: python scripts/build.py --package "${{ steps.package.outputs.package }}" --target "${BUILD_TARGETS}" --api "${ANDROID_API}" --dist dist
+        shell: bash
+        run: |
+          version_args=()
+          if [[ -n "${{ steps.package.outputs.version }}" ]]; then
+            version_args=(--version "${{ steps.package.outputs.version }}")
+          fi
+          python scripts/build.py --package "${{ steps.package.outputs.package }}" "${version_args[@]}" --target "${BUILD_TARGETS}" --api "${ANDROID_API}" --dist dist
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
