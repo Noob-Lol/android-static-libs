@@ -1,0 +1,99 @@
+name: Build native Android libraries
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package config name from configs/<package>.toml
+        required: true
+        default: libuv
+      targets:
+        description: Comma-separated targets
+        required: true
+        default: arm64_v8a,x86_64
+      api:
+        description: Android API level
+        required: true
+        default: "24"
+  push:
+    tags:
+      - "*-*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_API: ${{ github.event.inputs.api || '24' }}
+      BUILD_TARGETS: ${{ github.event.inputs.targets || 'arm64_v8a,x86_64' }}
+      INPUT_PACKAGE: ${{ github.event.inputs.package }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve package from tag
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME}"
+            package="${tag%-*}"
+            version="${tag##*-}"
+            config="configs/${package}.toml"
+            if [[ ! -f "${config}" ]]; then
+              echo "No config found for tag package '${package}' at ${config}" >&2
+              exit 1
+            fi
+            config_version="$(python scripts/config.py show "${package}" --field version)"
+            if [[ "${config_version}" != "${version}" ]]; then
+              echo "Tag version ${version} does not match ${config} version ${config_version}" >&2
+              exit 1
+            fi
+          else
+            package="${INPUT_PACKAGE}"
+          fi
+          echo "package=${package}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure Android NDK environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${ANDROID_NDK_LATEST_HOME:-}" ]]; then
+            echo "ANDROID_NDK_HOME=${ANDROID_NDK_LATEST_HOME}" >> "${GITHUB_ENV}"
+          elif [[ -n "${ANDROID_NDK_ROOT:-}" ]]; then
+            echo "ANDROID_NDK_HOME=${ANDROID_NDK_ROOT}" >> "${GITHUB_ENV}"
+          elif [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
+            echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME}" >> "${GITHUB_ENV}"
+          else
+            echo "No Android NDK found on runner" >&2
+            exit 1
+          fi
+
+      - name: Validate package config
+        run: python scripts/build.py --package "${{ steps.package.outputs.package }}" --target "${BUILD_TARGETS}" --api "${ANDROID_API}" --validate-config
+
+      - name: Build static libraries
+        run: python scripts/build.py --package "${{ steps.package.outputs.package }}" --target "${BUILD_TARGETS}" --api "${ANDROID_API}" --dist dist
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.package }}-android-static-libs
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Publish GitHub release for tag
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" dist/*.tar.gz --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" dist/*.tar.gz --title "${GITHUB_REF_NAME}" --notes "Static Android libraries for ${GITHUB_REF_NAME}."
+          fi

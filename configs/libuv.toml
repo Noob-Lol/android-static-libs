@@ -1,0 +1,23 @@
+# Upstream package identity. Release tags must be "<name>-<version>".
+name = "libuv"
+version = "1.48.0"
+
+[source]
+url = "https://dist.libuv.org/dist/v{version}/libuv-v{version}.tar.gz"
+sha256 = "95b66faf3c19b021eb475c0a04c4febfe0442efbd88bca3174d32a1f8957cb71"
+
+[termux]
+package = "libuv"
+# Pin this to a Termux commit once patches are needed for deterministic rebuilds.
+ref = "master"
+patches = []
+
+[build]
+system = "cmake"
+source_subdir = "."
+
+[build.defines]
+BUILD_SHARED_LIBS = "OFF"
+BUILD_TESTING = "OFF"
+CMAKE_POSITION_INDEPENDENT_CODE = "ON"
+LIBUV_BUILD_TESTS = "OFF"
