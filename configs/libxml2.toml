@@ -1,0 +1,34 @@
+# Upstream package identity. Release tags supply the version as "<name>-<version>".
+name = "libxml2"
+default_version = "2.15.3"
+
+[source]
+url = "https://download.gnome.org/sources/libxml2/{version_major_minor}/libxml2-{version}.tar.xz"
+# Optional fallback checksum. Prefer [source.sha256_by_version] for pinned releases.
+sha256 = ""
+
+[source.sha256_by_version]
+"2.15.3" = "78262a6e7ac170d6528ebfe2efccdf220191a5af6a6cd61ea4a9a9a5042c7a07"
+
+[termux]
+package = "libxml2"
+# Pin this to a Termux commit once patches are needed for deterministic rebuilds.
+ref = "master"
+patches = ["revert-Make-xmlFreeNodeList-non-recursive.patch"]
+
+[build]
+system = "cmake"
+source_subdir = "."
+
+[build.defines]
+BUILD_SHARED_LIBS = "OFF"
+CMAKE_POSITION_INDEPENDENT_CODE = "ON"
+LIBXML2_WITH_DOCS = "OFF"
+LIBXML2_WITH_ICONV = "OFF"
+LIBXML2_WITH_ICU = "OFF"
+LIBXML2_WITH_MODULES = "OFF"
+LIBXML2_WITH_PROGRAMS = "OFF"
+LIBXML2_WITH_PYTHON = "OFF"
+LIBXML2_WITH_READLINE = "OFF"
+LIBXML2_WITH_TESTS = "OFF"
+LIBXML2_WITH_ZLIB = "OFF"

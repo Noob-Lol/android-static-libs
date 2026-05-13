@@ -114,7 +114,11 @@ def main():
     new = subparsers.add_parser("new", help="Create a new configs/<package>.toml file")
     new.add_argument("package", help="Package/config name, for example libxml2")
     new.add_argument("--default-version", "--version", dest="default_version", help="Optional default upstream version")
-    new.add_argument("--url", required=True, help="Source archive URL; {version} and {name} may be used")
+    new.add_argument(
+        "--url",
+        required=True,
+        help="Source archive URL; {name}, {version}, and version-derived tokens may be used",
+    )
     new.add_argument("--sha256", default="", help="Fallback source archive SHA-256")
     new.add_argument(
         "--sha256-for",

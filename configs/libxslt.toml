@@ -1,0 +1,37 @@
+# Upstream package identity. Release tags supply the version as "<name>-<version>".
+name = "libxslt"
+default_version = "1.1.45"
+
+[source]
+url = "https://download.gnome.org/sources/libxslt/{version_major_minor}/libxslt-{version}.tar.xz"
+# Optional fallback checksum. Prefer [source.sha256_by_version] for pinned releases.
+sha256 = ""
+
+[source.sha256_by_version]
+"1.1.45" = "9acfe68419c4d06a45c550321b3212762d92f41465062ca4ea19e632ee5d216e"
+
+[termux]
+package = "libxslt"
+# Pin this to a Termux commit once patches are needed for deterministic rebuilds.
+ref = "master"
+patches = []
+
+[[dependencies]]
+package = "libxml2"
+version = "2.15.3"
+url = "https://github.com/Noob-Lol/android-static-libs/releases/download/libxml2-2.15.3/libxml2-2.15.3-{triplet}.tar.gz"
+
+[build]
+system = "cmake"
+source_subdir = "."
+
+[build.defines]
+BUILD_SHARED_LIBS = "OFF"
+CMAKE_POSITION_INDEPENDENT_CODE = "ON"
+LIBXSLT_WITH_CRYPTO = "OFF"
+LIBXSLT_WITH_DEBUGGER = "OFF"
+LIBXSLT_WITH_MODULES = "OFF"
+LIBXSLT_WITH_PROFILER = "OFF"
+LIBXSLT_WITH_PROGRAMS = "OFF"
+LIBXSLT_WITH_PYTHON = "OFF"
+LIBXSLT_WITH_TESTS = "OFF"

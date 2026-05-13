@@ -37,8 +37,37 @@ def fail(message) -> NoReturn:
     raise SystemExit(msg)
 
 
+def template_values(config):
+    version = config["version"]
+    parts = version.split(".")
+    return {
+        "name": config["name"],
+        "version": version,
+        "version_major": parts[0],
+        "version_minor": parts[1] if len(parts) > 1 else "",
+        "version_major_minor": ".".join(parts[:2]),
+    }
+
+
 def render_template(value, config):
-    return value.format(name=config["name"], version=config["version"])
+    return value.format(**template_values(config))
+
+
+def render_dependency_template(value, dependency, target_info):
+    package = dependency["package"]
+    version = dependency["version"]
+    parts = version.split(".")
+    values = {
+        "package": package,
+        "name": package,
+        "version": version,
+        "version_major": parts[0],
+        "version_minor": parts[1] if len(parts) > 1 else "",
+        "version_major_minor": ".".join(parts[:2]),
+        "target": target_info["cmake_abi"],
+        "triplet": target_info["triplet"],
+    }
+    return value.format(**values)
 
 
 def sha256sum(path):
@@ -69,6 +98,20 @@ def extract_archive(archive, dest):
         else:
             tf.extractall(dest)
     return first_child(dest)
+
+
+def extract_dependency_archive(archive, dest):
+    dest.mkdir(parents=True, exist_ok=True)
+    if archive.suffix == ".zip":
+        with zipfile.ZipFile(archive) as zf:
+            zf.extractall(dest)
+        return
+
+    with tarfile.open(archive) as tf:
+        if hasattr(tarfile, "data_filter"):
+            tf.extractall(dest, filter="data")
+        else:
+            tf.extractall(dest)
 
 
 def first_child(path: Path):
@@ -121,6 +164,43 @@ def download_termux_patches(config, work_dir):
     return downloaded
 
 
+def dependency_url(dependency, target_info):
+    if "url" in dependency:
+        return render_dependency_template(dependency["url"], dependency, target_info)
+
+    package = dependency["package"]
+    version = dependency["version"]
+    triplet = target_info["triplet"]
+    return (
+        f"https://github.com/Noob-Lol/android-static-libs/releases/download/"
+        f"{package}-{version}/{package}-{version}-{triplet}.tar.gz"
+    )
+
+
+def install_dependency_archives(config, target, work_dir, install_root):
+    dependencies = config.get("dependencies", [])
+    if not dependencies:
+        return
+
+    target_info = TARGETS[target]
+    dependency_dir = work_dir / "dependency-archives" / target
+    dependency_dir.mkdir(parents=True, exist_ok=True)
+
+    for dependency in dependencies:
+        url = dependency_url(dependency, target_info)
+        archive_name = url.rstrip("/").split("/")[-1]
+        archive_path = dependency_dir / archive_name
+        download(url, archive_path)
+        expected = dependency.get("sha256", "").strip().lower()
+        if expected:
+            actual = sha256sum(archive_path)
+            if actual != expected:
+                fail(f"sha256 mismatch for {archive_name}: expected {expected}, got {actual}")
+        else:
+            log(f"No dependency sha256 configured for {archive_name}; skipping checksum verification.")
+        extract_dependency_archive(archive_path, install_root)
+
+
 def apply_patches(source_dir, patches):
     for patch in patches:
         log(f"Applying Termux patch {patch.name}")
@@ -166,22 +246,23 @@ def cmake_define_args(defines):
     return args
 
 
-def build_target(config, source_dir, target: str, api, out_root: Path, keep_build):
+def build_target(config, source_dir, target: str, api, out_root: Path, keep_build, *, clean_install=True):
     target_info = TARGETS[target]
     ndk = find_ndk()
     if ndk is None:
         fail("Unable to find NDK")
-    build_root = out_root / "build" / target
-    install_root = out_root / "install" / target_info["triplet"]
+    build_root = out_root / "build" / config["name"] / target
+    install_root = install_root_for_target(out_root, target)
 
     if build_root.exists() and not keep_build:
         shutil.rmtree(build_root)
-    if install_root.exists():
+    if clean_install and install_root.exists():
         shutil.rmtree(install_root)
 
     source_subdir = config["build"].get("source_subdir", ".")
     cmake_source = source_dir / source_subdir
     defines = dict(config["build"].get("defines", {}))
+    prefix_paths = [str(install_root)] if install_root.exists() else []
 
     configure_cmd = [
         "cmake",
@@ -194,6 +275,7 @@ def build_target(config, source_dir, target: str, api, out_root: Path, keep_buil
         f"-DANDROID_PLATFORM=android-{api}",
         f"-DCMAKE_INSTALL_PREFIX={install_root}",
         "-DCMAKE_BUILD_TYPE=Release",
+        *(f"-DCMAKE_PREFIX_PATH={path}" for path in prefix_paths),
         *cmake_define_args(defines),
     ]
 
@@ -204,6 +286,10 @@ def build_target(config, source_dir, target: str, api, out_root: Path, keep_buil
     validate_static_install_tree(install_root)
 
     return install_root
+
+
+def install_root_for_target(out_root: Path, target: str):
+    return out_root / "install" / TARGETS[target]["triplet"]
 
 
 def postprocess_install_tree(install_root: Path):
@@ -314,7 +400,11 @@ def build_package(args):
 
         out_root = work_dir / "out"
         for target in targets:
-            install_root = build_target(config, source_dir, target, args.api, out_root, args.keep_build)
+            install_root = install_root_for_target(out_root, target)
+            if install_root.exists():
+                shutil.rmtree(install_root)
+            install_dependency_archives(config, target, work_dir, install_root)
+            install_root = build_target(config, source_dir, target, args.api, out_root, args.keep_build, clean_install=False)
             write_manifest(config, target, args.api, install_root)
             archive_install(config, target, args.api, install_root, dist_dir)
 

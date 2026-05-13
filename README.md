@@ -41,7 +41,9 @@ Important fields:
 - `name`: package name used for workflow inputs and release tags.
 - `default_version`: optional fallback version for manual builds. Release tags
   and `--version` override it.
-- `source.url`: source archive URL. `{version}` and `{name}` are expanded.
+- `source.url`: source archive URL. `{version}`, `{name}`,
+  `{version_major}`, `{version_minor}`, and `{version_major_minor}` are
+  expanded.
 - `source.sha256`: optional fallback source checksum.
 - `source.sha256_by_version`: optional version-keyed checksums. Missing
   entries warn and skip checksum verification instead of blocking other
@@ -51,6 +53,10 @@ Important fields:
 - `termux.patches`: patch filenames to download from Termux and apply before building.
 - `build.system`: currently `cmake`.
 - `build.defines`: CMake `-D` values.
+- `dependencies`: optional list of prebuilt dependency archives to download
+  and extract into the same target prefix before building this package. `url`
+  supports `{package}`, `{version}`, `{target}`, and `{triplet}` tokens. When
+  `url` is omitted, the build uses this repository's release archive format.
 
 Termux patches are downloaded from:
 

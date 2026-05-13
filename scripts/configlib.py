@@ -63,6 +63,21 @@ def validate_config(config, path):
     if not isinstance(defines, dict):
         fail(f"{path}: build.defines must be a table")
 
+    dependencies = config.get("dependencies", [])
+    if not isinstance(dependencies, list):
+        fail(f"{path}: dependencies must be a list of tables")
+    for dependency in dependencies:
+        if not isinstance(dependency, dict):
+            fail(f"{path}: dependencies entries must be tables")
+        if not dependency.get("package"):
+            fail(f"{path}: dependencies entries require a package")
+        if not isinstance(dependency.get("version"), str):
+            fail(f"{path}: dependencies entries require a string version")
+        if "url" in dependency and not isinstance(dependency["url"], str):
+            fail(f"{path}: dependencies.url must be a string")
+        if "sha256" in dependency and not isinstance(dependency["sha256"], str):
+            fail(f"{path}: dependencies.sha256 must be a string")
+
 
 def resolve_config_version(config, version=None):
     resolved = deepcopy(config)
