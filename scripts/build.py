@@ -243,7 +243,6 @@ def find_ndk():
             if (path / "build" / "cmake" / "android.toolchain.cmake").is_file():
                 return path
     fail("ANDROID_NDK_HOME, ANDROID_NDK_ROOT, or ANDROID_NDK_LATEST_HOME must point to an Android NDK")
-    return None
 
 
 def cmake_define_args(defines):
@@ -256,8 +255,6 @@ def cmake_define_args(defines):
 def build_target(config, source_dir, target: str, api, out_root: Path, keep_build, *, clean_install=True, cmake_args=None):
     target_info = TARGETS[target]
     ndk = find_ndk()
-    if ndk is None:
-        fail("Unable to find NDK")
     build_root = out_root / "build" / config["name"] / target
     install_root = install_root_for_target(out_root, target)
 
