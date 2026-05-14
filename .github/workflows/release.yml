@@ -1,0 +1,37 @@
+name: Create release tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package config name (e.g. libuv)"
+        required: true
+      version:
+        description: "Version to release (e.g. 1.49.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate config exists
+        run: |
+          config="configs/${{ github.event.inputs.package }}.toml"
+          if [[ ! -f "${config}" ]]; then
+            echo "No config found at ${config}" >&2
+            exit 1
+          fi
+
+      - name: Create and push tag
+        run: |
+          tag="${{ github.event.inputs.package }}-${{ github.event.inputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${tag}"
+          git push origin "${tag}"
