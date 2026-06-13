@@ -253,6 +253,13 @@ def cmake_define_args(defines):
 
 
 def build_target(config, source_dir, target: str, api, out_root: Path, keep_build, *, clean_install=True, cmake_args=None):
+    system = config["build"].get("system", "cmake")
+    if system == "openssl":
+        return build_openssl_target(config, source_dir, target, api, out_root, keep_build, clean_install=clean_install)
+    return build_cmake_target(config, source_dir, target, api, out_root, keep_build, clean_install=clean_install, cmake_args=cmake_args)
+
+
+def build_cmake_target(config, source_dir, target: str, api, out_root: Path, keep_build, *, clean_install=True, cmake_args=None):
     target_info = TARGETS[target]
     ndk = find_ndk()
     build_root = out_root / "build" / config["name"] / target
@@ -291,6 +298,85 @@ def build_target(config, source_dir, target: str, api, out_root: Path, keep_buil
     validate_static_install_tree(install_root)
 
     return install_root
+
+
+def openssl_android_target(triplet):
+    """Map an android-libs triplet to the OpenSSL Configure target name."""
+    mapping = {
+        "aarch64-linux-android": "android-arm64",
+        "x86_64-linux-android": "android-x86_64",
+    }
+    result = mapping.get(triplet)
+    if not result:
+        fail(f"no OpenSSL Configure target known for triplet '{triplet}'")
+    return result
+
+
+def build_openssl_target(config, source_dir, target: str, api, out_root: Path, keep_build, *, clean_install=True):
+    target_info = TARGETS[target]
+    triplet = target_info["triplet"]
+    ndk = find_ndk()
+    toolchain_bin = ndk / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "bin"
+    install_root = install_root_for_target(out_root, target)
+
+    if clean_install and install_root.exists():
+        shutil.rmtree(install_root)
+    install_root.mkdir(parents=True, exist_ok=True)
+
+    # OpenSSL's Configure script modifies the source tree, so we work in a
+    # per-target copy to allow multiple targets from a single download.
+    build_root = out_root / "build" / config["name"] / target
+    if build_root.exists() and not keep_build:
+        shutil.rmtree(build_root)
+    if not build_root.exists():
+        shutil.copytree(source_dir, build_root)
+
+    openssl_target = openssl_android_target(triplet)
+    configure_flags = config["build"].get("options", {}).get("configure_flags", [])
+
+    # Build the environment: prepend NDK toolchain to PATH so Configure finds
+    # the right clang / clang++ without manual CC/CXX overrides.
+    env = os.environ.copy()
+    env["PATH"] = str(toolchain_bin) + os.pathsep + env.get("PATH", "")
+    env["ANDROID_NDK_ROOT"] = str(ndk)
+
+    configure_cmd = [
+        "perl",
+        "Configure",
+        openssl_target,
+        f"-D__ANDROID_API__={api}",
+        f"--prefix={install_root}",
+        f"--openssldir={install_root}/ssl",
+        *configure_flags,
+    ]
+    run(configure_cmd, cwd=build_root, env=env)
+    run(["make", "-j", str(os.cpu_count() or 4)], cwd=build_root, env=env)
+    run(["make", "install_sw"], cwd=build_root, env=env)
+
+    # OpenSSL installs shared libs when built with modules; remove them so
+    # the static-only validator does not trip (legacy provider is compiled
+    # directly into libcrypto.a via enable-legacy + no-shared).
+    _remove_openssl_shared_artifacts(install_root)
+
+    postprocess_install_tree(install_root)
+    validate_static_install_tree(install_root)
+    return install_root
+
+
+def _remove_openssl_shared_artifacts(install_root: Path):
+    """Remove any .so / engine .so files that OpenSSL may install even with no-shared."""
+    shared_patterns = ("*.so", "*.so.*")
+    for pattern in shared_patterns:
+        for path in install_root.rglob(pattern):
+            log(f"Removing shared artifact: {path.relative_to(install_root)}")
+            path.unlink()
+    # Also prune empty directories left behind (e.g. lib/engines-3)
+    for dirpath in sorted(install_root.rglob("*"), reverse=True):
+        if dirpath.is_dir():
+            try:
+                dirpath.rmdir()  # only succeeds if empty
+            except OSError:
+                pass
 
 
 def install_root_for_target(out_root: Path, target: str):

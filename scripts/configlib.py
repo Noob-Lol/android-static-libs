@@ -35,8 +35,8 @@ def validate_config(config, path):
         if key not in config:
             fail(f"{path}: missing required field '{key}'")
 
-    if config["build"].get("system") != "cmake":
-        fail(f"{path}: only build.system='cmake' is currently implemented")
+    if config["build"].get("system") not in {"cmake", "openssl"}:
+        fail(f"{path}: build.system must be 'cmake' or 'openssl'")
 
     if "url" not in config["source"]:
         fail(f"{path}: source.url is required")
@@ -62,6 +62,13 @@ def validate_config(config, path):
     defines = config["build"].get("defines", {})
     if not isinstance(defines, dict):
         fail(f"{path}: build.defines must be a table")
+
+    options = config["build"].get("options", {})
+    if not isinstance(options, dict):
+        fail(f"{path}: build.options must be a table")
+    configure_flags = options.get("configure_flags", [])
+    if not isinstance(configure_flags, list) or not all(isinstance(f, str) for f in configure_flags):
+        fail(f"{path}: build.options.configure_flags must be a list of strings")
 
     dependencies = config.get("dependencies", [])
     if not isinstance(dependencies, list):

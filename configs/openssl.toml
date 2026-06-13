@@ -1,0 +1,30 @@
+# Upstream package identity. Release tags supply the version as "<name>-<version>".
+name = "openssl"
+default_version = "3.5.7"
+
+[source]
+url = "https://www.openssl.org/source/openssl-{version}.tar.gz"
+# Optional fallback checksum. Prefer [source.sha256_by_version] for pinned releases.
+sha256 = ""
+
+[source.sha256_by_version]
+"3.5.0" = "344d0a79f1a9b08029b0744e2cc401a43f9c90acd1044d09a530b4885a8e9fc0"
+"3.5.7" = "a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8"
+
+[build]
+system = "openssl"
+
+[build.options]
+# no-shared: build static archives only (libssl.a + libcrypto.a).
+# enable-legacy: compile the legacy provider into libcrypto.a so callers can
+#   load it via OSSL_PROVIDER_load(NULL, "legacy") without a .so module.
+# no-tests: skip test suite.
+# no-docs: skip man-page generation (not useful for Android targets).
+# no-ui-console: remove terminal UI dependency unsupported on Android.
+configure_flags = [
+    "no-shared",
+    "enable-legacy",
+    "no-tests",
+    "no-docs",
+    "no-ui-console",
+]
