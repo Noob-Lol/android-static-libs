@@ -23,6 +23,7 @@ system = "openssl"
 # no-ui-console: remove terminal UI dependency unsupported on Android.
 configure_flags = [
     "no-shared",
+    "no-module",
     "enable-legacy",
     "no-tests",
     "no-docs",
