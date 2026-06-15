@@ -472,6 +472,11 @@ def postprocess_install_tree(install_root: Path):
                         shutil.move(str(item), str(dest_inc / item.name))
                     shutil.rmtree(libffi_dir)
 
+    # Delete any .la files (libtool metadata files containing non-relocatable absolute paths)
+    for la_file in install_root.rglob("*.la"):
+        log(f"Removing libtool library file: {la_file.relative_to(install_root)}")
+        la_file.unlink()
+
     pkgconfig_dir = install_root / "lib" / "pkgconfig"
     if pkgconfig_dir.is_dir():
         for pc_file in pkgconfig_dir.glob("*.pc"):
