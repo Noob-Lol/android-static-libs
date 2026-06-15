@@ -35,8 +35,8 @@ def validate_config(config, path):
         if key not in config:
             fail(f"{path}: missing required field '{key}'")
 
-    if config["build"].get("system") not in {"cmake", "openssl"}:
-        fail(f"{path}: build.system must be 'cmake' or 'openssl'")
+    if config["build"].get("system") not in {"cmake", "openssl", "autotools"}:
+        fail(f"{path}: build.system must be 'cmake', 'openssl', or 'autotools'")
 
     if "url" not in config["source"]:
         fail(f"{path}: source.url is required")

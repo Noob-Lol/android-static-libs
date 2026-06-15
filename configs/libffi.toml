@@ -1,0 +1,24 @@
+# Upstream package identity. Release tags supply the version as "<name>-<version>".
+name = "libffi"
+default_version = "3.5.2"
+
+[source]
+url = "https://github.com/libffi/libffi/releases/download/v{version}/libffi-{version}.tar.gz"
+sha256 = ""
+
+[source.sha256_by_version]
+"3.4.6" = "b0dea9df23c863a7a50e825440f3ebffabd65df1497108e5d437747843895a4e"
+"3.5.2" = "f3a3082a23b37c293a4fcd1053147b371f2ff91fa7ea1b2a52e335676bac82dc"
+
+[termux]
+package = "libffi"
+ref = "master"
+patches = []
+
+[build]
+system = "autotools"
+
+[build.options]
+configure_flags = [
+    "--disable-multi-os-directory",
+]

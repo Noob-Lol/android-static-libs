@@ -256,6 +256,8 @@ def build_target(config, source_dir, target: str, api, out_root: Path, keep_buil
     system = config["build"].get("system", "cmake")
     if system == "openssl":
         return build_openssl_target(config, source_dir, target, api, out_root, keep_build, clean_install=clean_install)
+    if system == "autotools":
+        return build_autotools_target(config, source_dir, target, api, out_root, keep_build, clean_install=clean_install)
     return build_cmake_target(config, source_dir, target, api, out_root, keep_build, clean_install=clean_install, cmake_args=cmake_args)
 
 
@@ -379,11 +381,97 @@ def _remove_openssl_shared_artifacts(install_root: Path):
                 pass
 
 
+def build_autotools_target(config, source_dir, target: str, api, out_root: Path, keep_build, *, clean_install=True):
+    target_info = TARGETS[target]
+    triplet = target_info["triplet"]
+    ndk = find_ndk()
+
+    # Locate toolchain bin directory dynamically
+    prebuilt_dir = ndk / "toolchains" / "llvm" / "prebuilt"
+    try:
+        host_dir = next(prebuilt_dir.iterdir())
+    except StopIteration:
+        fail(f"no prebuilt host toolchain directory found under {prebuilt_dir}")
+    toolchain_bin = host_dir / "bin"
+
+    install_root = install_root_for_target(out_root, target)
+    if clean_install and install_root.exists():
+        shutil.rmtree(install_root)
+    install_root.mkdir(parents=True, exist_ok=True)
+
+    # Autotools configure modifies or generates files, so we compile in a per-target build root copy.
+    build_root = out_root / "build" / config["name"] / target
+    if build_root.exists() and not keep_build:
+        shutil.rmtree(build_root)
+    if not build_root.exists():
+        shutil.copytree(source_dir, build_root)
+
+    source_subdir = config["build"].get("source_subdir", ".")
+    configure_dir = build_root / source_subdir
+    configure_script = configure_dir / "configure"
+
+    if not configure_script.is_file():
+        fail(f"configure script not found at {configure_script}")
+
+    # Ensure configure is executable (standard Unix permissions)
+    try:
+        configure_script.chmod(0o755)
+    except OSError:
+        pass
+
+    env = os.environ.copy()
+    env["PATH"] = str(toolchain_bin) + os.pathsep + env.get("PATH", "")
+    env["CC"] = f"{triplet}{api}-clang"
+    env["CXX"] = f"{triplet}{api}-clang++"
+    env["AR"] = "llvm-ar"
+    env["AS"] = f"{triplet}{api}-clang"
+    env["RANLIB"] = "llvm-ranlib"
+    env["STRIP"] = "llvm-strip"
+
+    if install_root.exists():
+        env["CFLAGS"] = f"-I{install_root}/include " + env.get("CFLAGS", "")
+        env["CPPFLAGS"] = f"-I{install_root}/include " + env.get("CPPFLAGS", "")
+        env["LDFLAGS"] = f"-L{install_root}/lib " + env.get("LDFLAGS", "")
+        env["PKG_CONFIG_PATH"] = f"{install_root}/lib/pkgconfig" + (os.pathsep + env["PKG_CONFIG_PATH"] if "PKG_CONFIG_PATH" in env else "")
+
+    configure_flags = config["build"].get("options", {}).get("configure_flags", [])
+    configure_cmd = [
+        "./configure",
+        f"--host={triplet}",
+        f"--prefix={install_root}",
+        "--disable-shared",
+        "--enable-static",
+        *configure_flags,
+    ]
+
+    run(configure_cmd, cwd=configure_dir, env=env)
+    run(["make", "-j", str(os.cpu_count() or 4)], cwd=configure_dir, env=env)
+    run(["make", "install"], cwd=configure_dir, env=env)
+
+    postprocess_install_tree(install_root)
+    validate_static_install_tree(install_root)
+    return install_root
+
+
 def install_root_for_target(out_root: Path, target: str):
     return out_root / "install" / TARGETS[target]["triplet"]
 
 
 def postprocess_install_tree(install_root: Path):
+    # If libffi-style headers are installed under lib/libffi-<version>/include,
+    # move them to include/
+    lib_dir = install_root / "lib"
+    if lib_dir.is_dir():
+        for libffi_dir in lib_dir.glob("libffi-*"):
+            if libffi_dir.is_dir():
+                src_inc = libffi_dir / "include"
+                if src_inc.is_dir():
+                    dest_inc = install_root / "include"
+                    dest_inc.mkdir(parents=True, exist_ok=True)
+                    for item in src_inc.iterdir():
+                        shutil.move(str(item), str(dest_inc / item.name))
+                    shutil.rmtree(libffi_dir)
+
     pkgconfig_dir = install_root / "lib" / "pkgconfig"
     if pkgconfig_dir.is_dir():
         for pc_file in pkgconfig_dir.glob("*.pc"):
