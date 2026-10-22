@@ -94,7 +94,7 @@ def dependency_order(configs):
 
 def recipe_key(config):
     recipe = deepcopy(config)
-    for key in ("default_version", "version", "updates"):
+    for key in ("default_version", "version", "release_tag", "updates"):
         recipe.pop(key, None)
     # Checksums are recorded separately; the recipe must not change merely
     # because a version-specific checksum was added to the source TOML.
@@ -111,15 +111,29 @@ def read_state(release, directory):
     return json.loads((directory / STATE_ASSET).read_text(encoding="utf-8"))
 
 
-def archive_names(package, version):
-    return {target: f"{package}-{version}-{info['triplet']}.tar.gz"
+def archive_names(package, version, release_tag=None):
+    tag = release_tag or f"{package}-{version}"
+    return {target: f"{tag}-{info['triplet']}.tar.gz"
             for target, info in TARGETS.items()}
+
+
+def published_archive_names(package, version, tag, assets):
+    # Prefer revision-bearing assets, but continue to consume old releases.
+    for names in (archive_names(package, version, tag), archive_names(package, version)):
+        if all(name in assets for name in names.values()):
+            return names
+    raise ValueError(f"{tag}: missing target archives")
 
 
 def complete_release(package, version, release):
     names = {asset["name"] for asset in release["assets"]}
-    return (not release["draft"] and not release.get("prerelease")
-            and all(name in names for name in archive_names(package, version).values()))
+    if release["draft"] or release.get("prerelease"):
+        return False
+    try:
+        published_archive_names(package, version, release["tag_name"], names)
+    except ValueError:
+        return False
+    return True
 
 
 def download_digest(url):
@@ -133,11 +147,16 @@ def download_digest(url):
 def dependency_config(dependency, resolved, repository, dry_run):
     result = deepcopy(dependency)
     result.update(version=resolved["version"], release_tag=resolved["tag"])
+    names = archive_names(dependency["package"], resolved["version"], resolved["tag"])
+    if resolved["assets"]:
+        names = published_archive_names(dependency["package"], resolved["version"], resolved["tag"], resolved["assets"])
+    prefix = ("{release_tag}" if names == archive_names(dependency["package"], resolved["version"], resolved["tag"])
+              else "{package}-{version}")
     result["url"] = (f"https://github.com/{repository}/releases/download/"
-                     "{release_tag}/{package}-{version}-{triplet}.tar.gz")
+                     "{release_tag}/" + prefix + "-{triplet}.tar.gz")
     result.pop("sha256", None)
     checksums = {}
-    for target, name in archive_names(dependency["package"], resolved["version"]).items():
+    for target, name in names.items():
         if dry_run:
             continue
         asset = resolved["assets"][name]
@@ -195,6 +214,7 @@ def update_package(package, raw_config, version, resolved, releases, repository,
     if dry_run:
         return {"version": version, "tag": tag, "assets": {}}
 
+    config["release_tag"] = tag
     directory = work / package
     directory.mkdir()
     # Pin the exact downloaded source for both target builds. A known upstream
@@ -210,7 +230,7 @@ def update_package(package, raw_config, version, resolved, releases, repository,
     command(sys.executable, "scripts/build.py", "--package", package, "--version", version,
             "--config-file", str(config_file), "--api", "24", "--dist", str(directory))
     assets = {}
-    for name in archive_names(package, version).values():
+    for name in archive_names(package, version, tag).values():
         path = directory / name
         if not path.is_file():
             raise ValueError(f"Missing build archive {path}")

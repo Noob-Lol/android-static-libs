@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -24,11 +25,11 @@ def config(package="libuv", version="1.2.3", dependencies=None):
                         "tag_pattern": r"v(\d+\.\d+\.\d+)"}}
 
 
-def release(package, version, revision=1, draft=False):
+def release(package, version, revision=1, draft=False, legacy=False):
     tag = f"{package}-{version}" + (f"-r{revision}" if revision > 1 else "")
     return {"tag_name": tag, "draft": draft, "assets": [
         {"name": name, "digest": "sha256:" + "a" * 64}
-        for name in updates.archive_names(package, version).values()]}
+        for name in updates.archive_names(package, version, None if legacy else tag).values()]}
 
 
 class UpdateTests(unittest.TestCase):
@@ -51,13 +52,53 @@ class UpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Missing managed"):
             updates.dependency_order(configs)
 
-    def test_revision_release_urls_keep_upstream_archive_version(self):
+    def test_revision_release_urls_include_revision(self):
         dependency = {"package": "libxml2", "version": "2.15.3", "release_tag": "libxml2-2.15.3-r2"}
         target = build.TARGETS["arm64_v8a"]
-        self.assertIn("/libxml2-2.15.3-r2/libxml2-2.15.3-aarch64-linux-android.tar.gz",
+        self.assertIn("/libxml2-2.15.3-r2/libxml2-2.15.3-r2-aarch64-linux-android.tar.gz",
                       build.dependency_url(dependency, target))
         dependency["url"] = "https://example.org/{release_tag}/{package}-{version}-{triplet}.tar.gz"
         self.assertIn("libxml2-2.15.3-r2/libxml2-2.15.3-", build.dependency_url(dependency, target))
+
+    def test_revision_archive_contains_upstream_version_and_release_tag(self):
+        cfg = config("libxslt", "1.1.45")
+        cfg.update(version="1.1.45", release_tag="libxslt-1.1.45-r2")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            install = root / "install"
+            install.mkdir()
+            build.write_manifest(cfg, "arm64_v8a", 24, install)
+            archive = build.archive_install(cfg, "arm64_v8a", 24, install, root / "dist")
+            self.assertEqual(archive.name, "libxslt-1.1.45-r2-aarch64-linux-android.tar.gz")
+            with tarfile.open(archive) as tf:
+                manifest = json.load(tf.extractfile("android-libs-manifest.json"))
+            self.assertEqual(manifest["version"], "1.1.45")
+            self.assertEqual(manifest["release_tag"], "libxslt-1.1.45-r2")
+            del cfg["release_tag"]
+            archive = build.archive_install(cfg, "arm64_v8a", 24, install, root / "dist")
+            self.assertEqual(archive.name, "libxslt-1.1.45-aarch64-linux-android.tar.gz")
+
+    def test_dependency_resolution_supports_new_and_legacy_revision_assets(self):
+        dependency = {"package": "libxml2", "version": "2.15.2"}
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                item = release("libxml2", "2.15.3", revision=2, legacy=legacy)
+                self.assertTrue(updates.complete_release("libxml2", "2.15.3", item))
+                resolved = {"version": "2.15.3", "tag": item["tag_name"],
+                            "assets": {asset["name"]: asset for asset in item["assets"]}}
+                effective = updates.dependency_config(dependency, resolved, "owner/repo", False)
+                url = build.dependency_url(effective, build.TARGETS["arm64_v8a"])
+                filename = ("libxml2-2.15.3" if legacy else "libxml2-2.15.3-r2") + "-aarch64-linux-android.tar.gz"
+                self.assertTrue(url.endswith("/libxml2-2.15.3-r2/" + filename))
+                self.assertEqual(effective["sha256_by_target"]["arm64_v8a"], "a" * 64)
+                dry = updates.dependency_config(dependency, resolved, "owner/repo", True)
+                self.assertEqual(dry["url"], effective["url"])
+
+    def test_release_tag_does_not_change_build_recipe(self):
+        cfg = config()
+        previous = updates.recipe_key(cfg)
+        cfg["release_tag"] = "libuv-1.2.3-r2"
+        self.assertEqual(updates.recipe_key(cfg), previous)
 
     def test_release_identity_and_incomplete_assets(self):
         self.assertEqual(updates.release_identity("libxslt", "libxslt-1.1.45-r12"), ("1.1.45", 12))
@@ -104,7 +145,7 @@ class UpdateTests(unittest.TestCase):
                     self.assertIn(("publish", "libxml2-2.16.0"), events)
                     self.assertEqual(effective["dependencies"][0]["release_tag"], "libxml2-2.16.0")
                     self.assertEqual(set(effective["dependencies"][0]["sha256_by_target"]), set(build.TARGETS))
-                for name in updates.archive_names(package, version).values():
+                for name in updates.archive_names(package, version, effective["release_tag"]).values():
                     (Path(args[args.index("--dist") + 1]) / name).write_bytes(b"built archive")
             elif args[:3] == ("gh", "release", "create"):
                 tag = args[3]
@@ -125,6 +166,7 @@ class UpdateTests(unittest.TestCase):
             xml = updates.update_package("libxml2", cfg_xml, "2.16.0", {}, history, "owner/repo", work, False)
             xslt = updates.update_package("libxslt", cfg_xslt, "1.1.45", {"libxml2": xml}, history, "owner/repo", work, False)
             self.assertEqual(xslt["tag"], "libxslt-1.1.45-r2")
+            self.assertIn("libxslt-1.1.45-r2-aarch64-linux-android.tar.gz", xslt["assets"])
             for package, result in (("libxml2", xml), ("libxslt", xslt)):
                 item = release(package, result["version"], 2 if package == "libxslt" else 1)
                 item["assets"] = [{"name": name, **asset} for name, asset in result["assets"].items()] + [{"name": updates.STATE_ASSET}]

@@ -175,7 +175,7 @@ def dependency_url(dependency, target_info):
     release_tag = dependency.get("release_tag", f"{package}-{version}")
     return (
         f"https://github.com/Noob-Lol/android-static-libs/releases/download/"
-        f"{release_tag}/{package}-{version}-{triplet}.tar.gz"
+        f"{release_tag}/{release_tag}-{triplet}.tar.gz"
     )
 
 
@@ -561,6 +561,7 @@ def write_manifest(config, target, api, install_root):
     manifest = {
         "name": config["name"],
         "version": config["version"],
+        "release_tag": config.get("release_tag", f"{config['name']}-{config['version']}"),
         "target": target,
         "triplet": TARGETS[target]["triplet"],
         "android_api": api,
@@ -574,7 +575,8 @@ def write_manifest(config, target, api, install_root):
 def archive_install(config, target, api, install_root: Path, dist_dir: Path):
     triplet = TARGETS[target]["triplet"]
     # dont include android api. `-android-api{api}` is bad
-    name = f"{config['name']}-{config['version']}-{triplet}.tar.gz"
+    tag = config.get("release_tag", f"{config['name']}-{config['version']}")
+    name = f"{tag}-{triplet}.tar.gz"
     archive_path = dist_dir / name
     dist_dir.mkdir(parents=True, exist_ok=True)
 

@@ -88,12 +88,15 @@ The base workflow builds Android API 24 for:
 Output archive names use this format:
 
 ```text
-<package>-<version>-<triplet>.tar.gz
+<release-tag>-<triplet>.tar.gz
 ```
 
+For example, `libxslt-1.1.45-r2-aarch64-linux-android.tar.gz`. Builds without a
+revision retain names such as `libuv-1.53.0-aarch64-linux-android.tar.gz`.
 Each archive contains the CMake install tree and an
 `android-libs-manifest.json` file describing the package, version, API, and
-target triplet.
+target triplet. The manifest records the upstream version and full release tag
+separately.
 
 ## GitHub Actions
 
@@ -161,9 +164,11 @@ draft; subsequent runs reserve its revision and use the next one.
 
 New upstream versions use `<package>-<version>` tags. When a dependency or build
 recipe changes without an upstream version change, the updater creates
-`<package>-<version>-r2`, then `-r3`, and so on. Archive filenames retain the upstream
-version, e.g. `libxslt-1.1.45-aarch64-linux-android.tar.gz`; the release tag in the
-download URL identifies the revision. Existing assets are never overwritten.
+`<package>-<version>-r2`, then `-r3`, and so on. Archive filenames include the full
+release tag, e.g. `libxslt-1.1.45-r2-aarch64-linux-android.tar.gz`. Download URLs use
+`/releases/download/<release-tag>/<release-tag>-<triplet>.tar.gz`. The updater
+also recognizes and downloads older revision releases whose filenames omit the
+revision. Existing assets are never renamed or overwritten.
 The updater reuses complete matching releases on subsequent runs. Existing
 releases without update metadata are reused for standalone packages; consumers
 are rebuilt once to establish dependency provenance. Build revisions are managed
