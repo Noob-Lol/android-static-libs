@@ -51,15 +51,20 @@ Important fields:
 - `termux.package`: package directory under `termux/termux-packages/packages`.
 - `termux.ref`: branch, tag, or commit from `termux/termux-packages`.
 - `termux.patches`: patch filenames to download from Termux and apply before building.
-- `build.system`: currently `cmake`.
+- `build.system`: `cmake`, `autotools`, or `openssl`.
 - `build.defines`: CMake `-D` values.
 - `dependencies`: optional list of prebuilt dependency archives to download
   and extract into the same target prefix before building this package. `url`
-  supports `{package}`, `{version}`, `{target}`, and `{triplet}` tokens. When
+  supports `{package}`, `{version}`, `{target}`, `{triplet}`, and `{release_tag}`
+  tokens. `release_tag` defaults to `<package>-<version>` and can select a build
+  revision independently of the upstream version. When
   `url` is omitted, the build uses this repository's release archive format.
   `cmake_package` and `cmake_dir` can be used to pass
   `-D<cmake_package>_DIR=<prefix>/<cmake_dir>` for packages found via CMake
   config mode.
+- `dependencies.sha256_by_target`: optional checksums keyed by `arm64_v8a` or
+  `x86_64`, taking precedence over the fallback dependency `sha256`.
+- `updates`: upstream discovery settings for the automatic updater, described below.
 
 Termux patches are downloaded from:
 
@@ -108,6 +113,82 @@ git push origin libuv-1.48.0
 The workflow uses the tag version directly, builds the static libraries, and
 uploads the tarballs to a GitHub release with the same tag.
 
+### Automatic updates and dependency rebuilds
+
+**Update native Android libraries** runs daily at 06:23 UTC and can also be run
+manually. Merge the workflow onto the default branch to enable its schedule.
+It uses the built-in `GITHUB_TOKEN` with `contents: write`; no PAT is required.
+The update job builds and publishes directly, without depending on tag-triggered
+workflows or the unused `release.yml` workflow.
+
+Each managed package declares its upstream, for example:
+
+```toml
+[updates]
+provider = "releases"
+repository = "openssl/openssl"
+tag_pattern = 'openssl-(\d+\.\d+\.\d+)'
+series = "3.5"
+```
+
+`provider` is `releases` or `tags`. `tag_pattern` must match the entire tag and
+capture exactly one stable `major.minor.patch` version. The optional `series`
+limits updates to that major/minor line. OpenSSL tracks only 3.5.x. The GNOME
+libraries use their GitHub mirrors' tags; the source archives still come from
+GNOME. Drafts and prereleases are excluded, and versions are compared numerically.
+
+The updater resolves upstream versions and walks the package dependency graph.
+It builds and publishes `libxml2` before building `libxslt`, then replaces
+`libxslt`'s configured dependency version and URL in its resolved build config
+with that exact published release. Dependency archives are verified against
+per-target SHA-256 checksums. No manual dependency version changes are needed.
+Every dependency must have a package config and update settings in this repository.
+
+Both architectures must build successfully before the updater uploads a draft
+release and publishes it. If a dependency fails, its consumers are skipped and
+retried on the next run; unrelated packages can still release. A source archive
+that is not yet available, incompatible patches, or a build failure also leaves
+that package unpublished and eligible for retry. Publishing failures may leave a
+draft; subsequent runs reserve its revision and use the next one.
+
+New upstream versions use `<package>-<version>` tags. When a dependency or build
+recipe changes without an upstream version change, the updater creates
+`<package>-<version>-r2`, then `-r3`, and so on. Archive filenames retain the upstream
+version, e.g. `libxslt-1.1.45-aarch64-linux-android.tar.gz`; the release tag in the
+download URL identifies the revision. Existing assets are never overwritten.
+The updater reuses complete matching releases on subsequent runs. Existing
+releases without update metadata are reused for standalone packages; consumers
+are rebuilt once to establish dependency provenance. Build revisions are managed
+by the updater, rather than the manual tag-build workflow.
+
+Each automatic release includes `build-config.json` and `release-state.json`,
+recording the resolved versions, dependency release tags, source checksum,
+archive checksums, and repository commit. These release assets persist update
+state; the updater does not commit changes to the TOML files. `default_version`
+and dependency versions in TOML remain fallbacks for manual builds.
+
+Known source checksums must match. For a new version without a configured
+checksum, the updater records the first download's SHA-256 and verifies the
+build's download against it; this pins the bytes but does not independently
+authenticate the upstream archive. Pin `termux.ref` to a commit if exact patch
+reproduction is required.
+
+Select `dry_run` when running the workflow manually to inspect the release plan
+without compiling or publishing. The workflow attaches `update-report.json`
+with its decisions and errors. Locally, with Python 3.11+ and an authenticated
+GitHub CLI:
+
+```bash
+python scripts/updates.py --dry-run --repository Noob-Lol/android-static-libs
+```
+
+To rebuild from an attached resolved config, check out the commit recorded in
+`release-state.json`, configure the Android NDK, and run:
+
+```bash
+python scripts/build.py --package libxslt --config-file build-config.json --dist dist
+```
+
 ## Local validation
 
 Config and target parsing can be checked without downloading or compiling:
@@ -126,6 +207,12 @@ The config helper can validate all configs:
 
 ```bash
 python scripts/config.py validate
+```
+
+Run the updater's offline tests:
+
+```bash
+python -m unittest discover -s tests -v
 ```
 
 Create a starter config without hand-writing TOML:

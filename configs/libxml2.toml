@@ -2,6 +2,11 @@
 name = "libxml2"
 default_version = "2.15.3"
 
+[updates]
+provider = "tags"
+repository = "GNOME/libxml2"
+tag_pattern = 'v(\d+\.\d+\.\d+)'
+
 [source]
 url = "https://download.gnome.org/sources/libxml2/{version_major_minor}/libxml2-{version}.tar.xz"
 # Optional fallback checksum. Prefer [source.sha256_by_version] for pinned releases.

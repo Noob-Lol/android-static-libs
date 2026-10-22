@@ -66,6 +66,7 @@ def render_dependency_template(value, dependency, target_info):
         "version_major_minor": ".".join(parts[:2]),
         "target": target_info["cmake_abi"],
         "triplet": target_info["triplet"],
+        "release_tag": dependency.get("release_tag", f"{package}-{version}"),
     }
     return value.format(**values)
 
@@ -171,9 +172,10 @@ def dependency_url(dependency, target_info):
     package = dependency["package"]
     version = dependency["version"]
     triplet = target_info["triplet"]
+    release_tag = dependency.get("release_tag", f"{package}-{version}")
     return (
         f"https://github.com/Noob-Lol/android-static-libs/releases/download/"
-        f"{package}-{version}/{package}-{version}-{triplet}.tar.gz"
+        f"{release_tag}/{package}-{version}-{triplet}.tar.gz"
     )
 
 
@@ -192,7 +194,7 @@ def install_dependency_archives(config, target, work_dir, install_root):
         archive_name = url.rstrip("/").split("/")[-1]
         archive_path = dependency_dir / archive_name
         download(url, archive_path)
-        expected = dependency.get("sha256", "").strip().lower()
+        expected = dependency.get("sha256_by_target", {}).get(target, dependency.get("sha256", "")).strip().lower()
         if expected:
             actual = sha256sum(archive_path)
             if actual != expected:
@@ -218,7 +220,7 @@ def apply_patches(source_dir, patches):
 
 
 def validate_termux_patches(args):
-    raw_config, config_path = load_config(args.package)
+    raw_config, config_path = load_config(args.package, args.config_file)
     patches = raw_config.get("termux", {}).get("patches", [])
     if not patches:
         log(f"OK: {config_path} has no Termux patches configured")
@@ -552,6 +554,7 @@ def write_manifest(config, target, api, install_root):
         "triplet": TARGETS[target]["triplet"],
         "android_api": api,
         "linkage": "static",
+        "dependencies": config.get("dependencies", []),
     }
     path = install_root / "android-libs-manifest.json"
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -590,7 +593,7 @@ def parse_targets(values):
 
 
 def build_package(args):
-    raw_config, config_path = load_config(args.package)
+    raw_config, config_path = load_config(args.package, args.config_file)
     config = resolve_config_version(raw_config, args.version)
     targets = parse_targets(args.target)
     dist_dir = Path(args.dist).resolve()
@@ -625,6 +628,7 @@ def build_package(args):
 def main():
     parser = argparse.ArgumentParser(description="Build static Android native libraries.")
     parser.add_argument("--package", required=True, help="Package config name from configs/<package>.toml")
+    parser.add_argument("--config-file", help="Resolved JSON config (for automatic builds or release reproduction)")
     parser.add_argument("--version", help="Upstream version. Overrides config default_version.")
     parser.add_argument("--target", action="append", help="Target name or comma-separated targets")
     parser.add_argument("--api", type=int, default=24, help="Android API level")
@@ -643,7 +647,7 @@ def main():
     args = parser.parse_args()
 
     if args.validate_config:
-        raw_config, path = load_config(args.package)
+        raw_config, path = load_config(args.package, args.config_file)
         version = args.version or raw_config.get("default_version")
         parse_targets(args.target)
         suffix = f" default_version={version}" if version else " no default_version"

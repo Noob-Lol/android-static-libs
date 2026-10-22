@@ -2,6 +2,11 @@
 name = "libffi"
 default_version = "3.5.2"
 
+[updates]
+provider = "releases"
+repository = "libffi/libffi"
+tag_pattern = 'v(\d+\.\d+\.\d+)'
+
 [source]
 url = "https://github.com/libffi/libffi/releases/download/v{version}/libffi-{version}.tar.gz"
 sha256 = ""

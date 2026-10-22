@@ -1,4 +1,5 @@
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 
@@ -18,15 +19,20 @@ def config_path(package):
     return CONFIG_DIR / f"{package}.toml"
 
 
-def load_config(package):
-    path = config_path(package)
+def load_config(package, config_file=None):
+    path = Path(config_file) if config_file else config_path(package)
     if not path.is_file():
         fail(f"config not found: {path}")
 
-    with path.open("rb") as fh:
-        config = tomllib.load(fh)
+    if config_file:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        with path.open("rb") as fh:
+            config = tomllib.load(fh)
 
     validate_config(config, path)
+    if config["name"] != package:
+        fail(f"{path}: config name must match package {package!r}")
     return config, path
 
 
@@ -40,6 +46,21 @@ def validate_config(config, path):
 
     if "url" not in config["source"]:
         fail(f"{path}: source.url is required")
+
+    updates = config.get("updates")
+    if updates is not None:
+        if not isinstance(updates, dict) or updates.get("provider") not in {"tags", "releases"}:
+            fail(f"{path}: updates.provider must be 'tags' or 'releases'")
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+", str(updates.get("repository", ""))):
+            fail(f"{path}: updates.repository must be owner/repo")
+        try:
+            pattern = re.compile(updates["tag_pattern"])
+        except (KeyError, TypeError, re.error):
+            fail(f"{path}: updates.tag_pattern must be a valid regular expression")
+        if pattern.groups != 1:
+            fail(f"{path}: updates.tag_pattern must capture exactly one version")
+        if "series" in updates and not re.fullmatch(r"\d+\.\d+", str(updates["series"])):
+            fail(f"{path}: updates.series must be major.minor")
 
     sha256 = config["source"].get("sha256", "")
     if sha256 and not isinstance(sha256, str):
@@ -84,6 +105,11 @@ def validate_config(config, path):
             fail(f"{path}: dependencies.url must be a string")
         if "sha256" in dependency and not isinstance(dependency["sha256"], str):
             fail(f"{path}: dependencies.sha256 must be a string")
+        if "release_tag" in dependency and not isinstance(dependency["release_tag"], str):
+            fail(f"{path}: dependencies.release_tag must be a string")
+        checksums = dependency.get("sha256_by_target", {})
+        if not isinstance(checksums, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in checksums.items()):
+            fail(f"{path}: dependencies.sha256_by_target must be a string table")
         if "cmake_package" in dependency and not isinstance(dependency["cmake_package"], str):
             fail(f"{path}: dependencies.cmake_package must be a string")
         if "cmake_dir" in dependency and not isinstance(dependency["cmake_dir"], str):

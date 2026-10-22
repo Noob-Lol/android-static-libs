@@ -2,6 +2,11 @@
 name = "libuv"
 default_version = "1.52.1"
 
+[updates]
+provider = "releases"
+repository = "libuv/libuv"
+tag_pattern = 'v(\d+\.\d+\.\d+)'
+
 [source]
 url = "https://dist.libuv.org/dist/v{version}/libuv-v{version}.tar.gz"
 # Optional fallback checksum. Prefer [source.sha256_by_version] for pinned releases.

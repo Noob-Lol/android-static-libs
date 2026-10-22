@@ -2,6 +2,12 @@
 name = "openssl"
 default_version = "3.5.7"
 
+[updates]
+provider = "releases"
+repository = "openssl/openssl"
+tag_pattern = 'openssl-(\d+\.\d+\.\d+)'
+series = "3.5"
+
 [source]
 url = "https://www.openssl.org/source/openssl-{version}.tar.gz"
 # Optional fallback checksum. Prefer [source.sha256_by_version] for pinned releases.
