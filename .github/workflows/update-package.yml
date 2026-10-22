@@ -1,0 +1,98 @@
+name: Update one Android library
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        required: true
+        type: string
+      dry_run:
+        type: boolean
+        default: false
+      dependencies:
+        description: JSON map of resolved releases from dependency jobs
+        type: string
+        default: '{}'
+    outputs:
+      resolved:
+        description: JSON map of resolved releases for downstream jobs
+        value: ${{ jobs.update.outputs.resolved }}
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    name: ${{ inputs.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      resolved: ${{ steps.report.outputs.resolved }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PACKAGE: ${{ inputs.package }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      DEPENDENCIES: ${{ inputs.dependencies }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure Android NDK environment
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}}"
+          test -f "${ndk}/build/cmake/android.toolchain.cmake"
+          echo "ANDROID_NDK_HOME=${ndk}" >> "${GITHUB_ENV}"
+
+      - name: Build and publish ${{ inputs.package }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/updates
+          python -c 'import os, pathlib; pathlib.Path("dist/dependencies.json").write_text(os.environ["DEPENDENCIES"], encoding="utf-8")'
+          args=(--package "${PACKAGE}" --dependencies-file dist/dependencies.json)
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          python scripts/updates.py "${args[@]}" 2>&1 | tee dist/updates/build.log
+
+      - name: Export release result and summary
+        id: report
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          report_path = Path("dist/updates/update-report.json")
+          if report_path.exists():
+              report = json.loads(report_path.read_text())
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  output.write("resolved=" + json.dumps(report["resolved"]) + "\n")
+              package = os.environ["PACKAGE"]
+              error = report["errors"].get(package)
+              result = report["resolved"].get(package, {})
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                  summary.write(f"### {package}\n\n")
+                  summary.write(f"Failed: {error}\n" if error else f"Release: `{result.get('tag', 'none')}`\n")
+          PY
+
+      - name: Upload ${{ inputs.package }} logs and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-${{ inputs.package }}
+          path: |
+            dist/updates/**/*.json
+            dist/updates/build.log
+          if-no-files-found: ignore

@@ -26,6 +26,10 @@ patches = ["src-unix-fs.c.patch", "src-unix-linux.c.patch"]
 system = "cmake"
 source_subdir = "."
 
+[build.patches_by_version]
+# libuv 1.53 compiles posix_spawn unconditionally, but Android adds it at API 28.
+"1.53.0" = ["patches/libuv/android-api24-spawn.patch"]
+
 [build.defines]
 BUILD_SHARED_LIBS = "OFF"
 BUILD_TESTING = "OFF"

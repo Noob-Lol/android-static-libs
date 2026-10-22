@@ -53,6 +53,9 @@ Important fields:
 - `termux.patches`: patch filenames to download from Termux and apply before building.
 - `build.system`: `cmake`, `autotools`, or `openssl`.
 - `build.defines`: CMake `-D` values.
+- `build.patches_by_version`: optional version-keyed lists of repository patch
+  paths, applied after Termux patches. libuv 1.53.0 uses a local patch to retain
+  fork/exec on Android below API 28, where `posix_spawn` is unavailable.
 - `dependencies`: optional list of prebuilt dependency archives to download
   and extract into the same target prefix before building this package. `url`
   supports `{package}`, `{version}`, `{target}`, `{triplet}`, and `{release_tag}`
@@ -118,8 +121,13 @@ uploads the tarballs to a GitHub release with the same tag.
 **Update native Android libraries** runs daily at 06:23 UTC and can also be run
 manually. Merge the workflow onto the default branch to enable its schedule.
 It uses the built-in `GITHUB_TOKEN` with `contents: write`; no PAT is required.
-The update job builds and publishes directly, without depending on tag-triggered
-workflows or the unused `release.yml` workflow.
+Each library has its own job, logs, summary, and `update-<package>` artifact.
+`libffi`, `libuv`, `openssl`, and `libxml2` run in parallel. `libxslt` waits only
+for `libxml2`; failure in another package does not cancel it or other builds.
+The reusable `update-package.yml` workflow builds and publishes directly, without
+depending on tag-triggered workflows or the unused `release.yml` workflow.
+When adding packages or dependency edges, update the jobs and `needs` entries in
+`update-native-libs.yml` to match the config dependency graph.
 
 Each managed package declares its upstream, for example:
 
@@ -174,13 +182,19 @@ authenticate the upstream archive. Pin `termux.ref` to a commit if exact patch
 reproduction is required.
 
 Select `dry_run` when running the workflow manually to inspect the release plan
-without compiling or publishing. The workflow attaches `update-report.json`
-with its decisions and errors. Locally, with Python 3.11+ and an authenticated
+without compiling or publishing. Each package's artifact contains its
+`update-report.json`, resolved JSON configs, and `build.log`, including failures.
+Locally, with Python 3.11+ and an authenticated
 GitHub CLI:
 
 ```bash
 python scripts/updates.py --dry-run --repository Noob-Lol/android-static-libs
 ```
+
+The local CLI processes all packages in dependency order by default. Jobs use
+`--package` to select one package and `--dependencies-file` to receive the exact
+resolved release map from prerequisite jobs. A selected consumer fails if a
+required dependency result is missing; it never silently uses its TOML fallback.
 
 To rebuild from an attached resolved config, check out the commit recorded in
 `release-state.json`, configure the Android NDK, and run:

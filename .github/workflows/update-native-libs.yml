@@ -19,13 +19,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  update:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      DRY_RUN: ${{ inputs.dry_run || false }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -40,28 +35,31 @@ jobs:
           python scripts/config.py validate
           python -m unittest discover -s tests -v
 
-      - name: Configure Android NDK environment
-        shell: bash
-        run: |
-          set -euo pipefail
-          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}}"
-          test -f "${ndk}/build/cmake/android.toolchain.cmake"
-          echo "ANDROID_NDK_HOME=${ndk}" >> "${GITHUB_ENV}"
+  independent:
+    name: Update ${{ matrix.package }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [libffi, libuv, openssl]
+    uses: ./.github/workflows/update-package.yml
+    with:
+      package: ${{ matrix.package }}
+      dry_run: ${{ inputs.dry_run || false }}
 
-      - name: Check upstreams, build dependencies, and publish releases
-        shell: bash
-        run: |
-          set -euo pipefail
-          args=()
-          if [[ "${DRY_RUN}" == "true" ]]; then
-            args+=(--dry-run)
-          fi
-          python scripts/updates.py "${args[@]}"
+  libxml2:
+    name: Update libxml2
+    needs: validate
+    uses: ./.github/workflows/update-package.yml
+    with:
+      package: libxml2
+      dry_run: ${{ inputs.dry_run || false }}
 
-      - name: Upload update report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-library-update-report
-          path: dist/updates/update-report.json
-          if-no-files-found: ignore
+  libxslt:
+    name: Update libxslt
+    needs: libxml2
+    uses: ./.github/workflows/update-package.yml
+    with:
+      package: libxslt
+      dry_run: ${{ inputs.dry_run || false }}
+      dependencies: ${{ needs.libxml2.outputs.resolved }}

@@ -166,6 +166,9 @@ def matching_state(state, version, config, dry_run):
 def update_package(package, raw_config, version, resolved, releases, repository, work, dry_run):
     config = resolve_config_version(raw_config, version)
     config["default_version"] = version
+    local_patches = config["build"].get("patches_by_version", {}).get(version, [])
+    if local_patches:
+        config["build"]["patch_sha256"] = {filename: sha256sum(ROOT / filename) for filename in local_patches}
     config["dependencies"] = [dependency_config(d, resolved[d["package"]], repository, dry_run)
                               for d in config.get("dependencies", [])]
     history = package_releases(package, releases)
@@ -236,14 +239,22 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Discover updates without builds or publishing")
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"), help="owner/repo to publish to")
     parser.add_argument("--output", default="dist/updates", help="Build output and diagnostic directory")
+    parser.add_argument("--package", help="Update one package; dependency results must be supplied separately")
+    parser.add_argument("--dependencies-file", help="JSON map of dependency results from preceding jobs")
     args = parser.parse_args()
     repository = args.repository or command("gh", "repo", "view", "--json", "nameWithOwner",
                                            "--jq", ".nameWithOwner", capture=True).strip()
     os.environ["GH_REPO"] = repository
     configs = {p.stem: load_config(p.stem)[0] for p in sorted(CONFIG_DIR.glob("*.toml"))}
     order = dependency_order(configs)
+    if args.package:
+        if args.package not in configs:
+            parser.error(f"Unknown package: {args.package}")
+        order = [args.package]
     releases = api_pages(f"repos/{repository}/releases?per_page=100")
     versions, errors, resolved = {}, {}, {}
+    if args.dependencies_file:
+        resolved = json.loads(Path(args.dependencies_file).read_text(encoding="utf-8"))
     for package in order:
         try:
             settings = configs[package]["updates"]

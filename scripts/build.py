@@ -212,18 +212,29 @@ def install_dependency_archives(config, target, work_dir, install_root):
 
 def apply_patches(source_dir, patches):
     for patch in patches:
-        log(f"Applying Termux patch {patch.name}")
+        log(f"Applying patch {patch.name}")
         try:
             run(["git", "apply", "--verbose", str(patch)], cwd=source_dir)
         except subprocess.CalledProcessError:
             run(["patch", "-p1", "-i", str(patch)], cwd=source_dir)
 
 
+def package_patches(config, work_dir):
+    patches = download_termux_patches(config, work_dir)
+    for filename in config["build"].get("patches_by_version", {}).get(config["version"], []):
+        path = (ROOT / filename).resolve()
+        if not path.is_relative_to(ROOT) or not path.is_file():
+            fail(f"local patch not found in repository: {filename}")
+        patches.append(path)
+    return patches
+
+
 def validate_termux_patches(args):
     raw_config, config_path = load_config(args.package, args.config_file)
-    patches = raw_config.get("termux", {}).get("patches", [])
+    patches = (raw_config.get("termux", {}).get("patches", [])
+               or raw_config["build"].get("patches_by_version", {}))
     if not patches:
-        log(f"OK: {config_path} has no Termux patches configured")
+        log(f"OK: {config_path} has no patches configured")
         return
 
     config = resolve_config_version(raw_config, args.version)
@@ -232,9 +243,9 @@ def validate_termux_patches(args):
     with tempfile.TemporaryDirectory(prefix=f"{config['name']}-{config['version']}-patches-") as tmp:
         work_dir = Path(tmp)
         source_dir = download_source(config, work_dir)
-        downloaded = download_termux_patches(config, work_dir)
+        downloaded = package_patches(config, work_dir)
         apply_patches(source_dir, downloaded)
-        log(f"OK: fetched and applied {len(downloaded)} Termux patch(es)")
+        log(f"OK: applied {len(downloaded)} patch(es)")
 
 
 def find_ndk():
@@ -602,7 +613,7 @@ def build_package(args):
     with tempfile.TemporaryDirectory(prefix=f"{config['name']}-{config['version']}-") as tmp:
         work_dir = Path(tmp)
         source_dir = download_source(config, work_dir)
-        patches = download_termux_patches(config, work_dir)
+        patches = package_patches(config, work_dir)
         apply_patches(source_dir, patches)
 
         out_root = work_dir / "out"

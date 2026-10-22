@@ -81,6 +81,12 @@ def validate_config(config, path):
         fail(f"{path}: termux.package is required when termux.patches is not empty")
 
     defines = config["build"].get("defines", {})
+    local_patches = config["build"].get("patches_by_version", {})
+    if not isinstance(local_patches, dict) or not all(
+        isinstance(version, str) and isinstance(files, list) and all(isinstance(f, str) for f in files)
+        for version, files in local_patches.items()
+    ):
+        fail(f"{path}: build.patches_by_version must map version strings to lists of patch paths")
     if not isinstance(defines, dict):
         fail(f"{path}: build.defines must be a table")
 

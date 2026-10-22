@@ -181,6 +181,41 @@ class UpdateTests(unittest.TestCase):
             self.assertIn("Blocked", report["errors"]["libxslt"])
             self.assertIn("openssl", report["resolved"])
 
+    def test_selected_consumer_uses_dependency_job_result(self):
+        configs = {"libxml2": config("libxml2"), "libxslt": config("libxslt", dependencies=[{"package": "libxml2", "version": "1.2.3"}])}
+        upstream = {"libxml2": {"version": "2.15.4", "tag": "libxml2-2.15.4", "assets": {}}}
+        with tempfile.TemporaryDirectory() as directory, patch.object(updates, "CONFIG_DIR") as config_dir, \
+                patch.object(updates, "load_config", side_effect=lambda p: (configs[p], None)), \
+                patch.object(updates, "api_pages", return_value=[{"tag_name": "v1.2.3"}]) as api, \
+                patch.object(updates, "update_package", return_value={"tag": "libxslt-1.2.3"}) as update, \
+                patch.dict(os.environ):
+            dependencies = Path(directory) / "dependencies.json"
+            dependencies.write_text(json.dumps(upstream))
+            config_dir.glob.return_value = [Path(p + ".toml") for p in configs]
+            args = ["updates.py", "--repository", "owner/repo", "--package", "libxslt", "--output", directory,
+                    "--dependencies-file", str(dependencies), "--dry-run"]
+            with patch.object(sys, "argv", args):
+                self.assertEqual(updates.main(), 0)
+            self.assertEqual(update.call_count, 1)
+            self.assertEqual(update.call_args.args[0], "libxslt")
+            self.assertEqual(update.call_args.args[3]["libxml2"], upstream["libxml2"])
+            self.assertEqual(api.call_count, 2)  # own releases and selected upstream only
+            update.reset_mock()
+            dependencies.write_text("{}")
+            with patch.object(sys, "argv", args), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(updates.main(), 1)
+            update.assert_not_called()
+
+    def test_local_patch_selection_preserves_manual_older_builds(self):
+        cfg, _ = load_config("libuv")
+        with tempfile.TemporaryDirectory() as directory, patch.object(build, "download_termux_patches", return_value=[]):
+            cfg["version"] = "1.52.1"
+            self.assertEqual(build.package_patches(cfg, Path(directory)), [])
+            cfg["version"] = "1.53.0"
+            selected = build.package_patches(cfg, Path(directory))
+            self.assertEqual(len(selected), 1)
+            self.assertTrue(selected[0].is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

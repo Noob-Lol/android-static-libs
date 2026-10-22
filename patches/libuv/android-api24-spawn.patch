@@ -1,0 +1,72 @@
+--- a/src/unix/process.c
++++ b/src/unix/process.c
+@@ -84,6 +84,11 @@
+ #define UV_USE_SIGCHLD
+ #endif
+ 
++#if !defined(__ANDROID__) || __ANDROID_API__ >= 28
++#define UV_USE_POSIX_SPAWN
++#endif
++
++#ifdef UV_USE_POSIX_SPAWN
+ static uv_once_t posix_spawn_init_once = UV_ONCE_INIT;
+ static int posix_spawn_can_use_setsid;
+ static volatile int posix_spawn_works;
+@@ -93,6 +98,7 @@
+     int (*addchdir)(posix_spawn_file_actions_t *, const char *);
+   } file_actions;
+ } posix_spawn_fncs;
++#endif /* UV_USE_POSIX_SPAWN */
+ 
+ #ifdef UV_USE_SIGCHLD
+ static void uv__chld(uv_signal_t* handle, int signum) {
+@@ -462,6 +468,7 @@
+ }
+ 
+ 
++#ifdef UV_USE_POSIX_SPAWN
+ #if defined(__APPLE__)
+ static void uv__spawn_init_can_use_setsid(void) {
+   int which[] = {CTL_KERN, KERN_OSRELEASE};
+@@ -734,6 +741,8 @@
+   return err;
+ }
+ 
++#endif /* UV_USE_POSIX_SPAWN */
++
+ char* uv__spawn_find_path_in_env(char** env) {
+   char** env_iterator;
+   const char path_var[] = "PATH=";
+@@ -751,6 +760,7 @@
+ }
+ 
+ 
++#ifdef UV_USE_POSIX_SPAWN
+ static int uv__spawn_resolve_and_spawn(const uv_process_options_t* options,
+                                        posix_spawnattr_t* attrs,
+                                        posix_spawn_file_actions_t* actions,
+@@ -898,6 +908,8 @@
+   return UV__ERR(err);
+ }
+ 
++
++#endif /* UV_USE_POSIX_SPAWN */
+ 
+ static int uv__spawn_and_init_child_fork(const uv_process_options_t* options,
+                                          int stdio_count,
+@@ -952,6 +964,7 @@
+   int exec_errorno;
+   ssize_t r;
+ 
++#ifdef UV_USE_POSIX_SPAWN
+   uv_once(&posix_spawn_init_once, uv__spawn_init_posix_spawn);
+ 
+   /* Calling posix_spawn is considerably faster, if it supports the given
+@@ -966,6 +979,7 @@
+                                              pid);
+   if (err != UV_ENOSYS)
+     return err;
++#endif /* UV_USE_POSIX_SPAWN */
+ 
+   /* This pipe is used by the parent to wait until
+    * the child has called `execve()`. We need this
